@@ -1,0 +1,19 @@
+# Environment & secrets
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker / Spark temporary caches
+.ivy2/
+spark-warehouse/
+derby.log

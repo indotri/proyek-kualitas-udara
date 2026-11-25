@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Klasifikasi &amp; Perkiraan Kualitas Udara Indonesia — Spark MLlib &amp; Gemini</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=monad3" />
+</head>
+<body>
+  <!-- Monad Announcement Strip (Ink #000000) -->
+  <div class="announcement-bar">
+    <div class="announcement-inner">
+      <div class="announcement-left">
+        <span>HADOOP HDFS</span>
+        <span class="sep">&middot;</span>
+        <span>APACHE SPARK 3.5.1 MLLIB (LINEARSVC)</span>
+        <span class="sep">&middot;</span>
+        <span>MONGODB 6.0</span>
+        <span class="sep">&middot;</span>
+        <span>GEMINI 3.8 FLASH</span>
+      </div>
+      <div class="announcement-right">
+        <span class="nav-pill-status" id="db-status-pill">
+          <span class="status-dot" id="db-status-dot"></span>
+          <span id="db-status-text">MEMUAT DATA…</span>
+        </span>
+        <span class="clock-readout" id="live-clock">--:--:-- WIB</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Atmospheric Soft Pastel Wash behind Centered Hero & Map -->
+  <div class="atmospheric-wrap">
+    <div class="wash-orb wash-1" aria-hidden="true"></div>
+    <div class="wash-orb wash-2" aria-hidden="true"></div>
+
+    <main class="page-shell">
+      <!-- Centered Editorial Serif Hero Title (Weight 400, Untitled Serif style) -->
+      <header class="hero-header">
+        <h1 class="hero-title">Pemantauan &amp; Klasifikasi Kualitas Udara Indonesia</h1>
+        <p class="hero-sub">
+          Perkiraan sebaran polutan berbasis Spark MLlib &amp; perbandingan kondisi hari ini dengan Gemini API
+        </p>
+      </header>
+
+      <!-- Centered Pill Control Bar (Matching Screenshot) -->
+      <section class="pill-toolbar" aria-label="Kontrol Peta Wilayah">
+        <div class="toolbar-left">
+          <div class="select-pill-wrap">
+            <select id="tier-select" class="pill-select" aria-label="Filter Status Kualitas Udara">
+              <option value="ALL">Semua Kategori (23 Provinsi)</option>
+              <option value="Baik">Baik / Aman (&le;15 &mu;g/m&sup3;)</option>
+              <option value="Sedang">Sedang (15–35 &mu;g/m&sup3;)</option>
+              <option value="Tidak Sehat">Tidak Sehat (&gt;35 &mu;g/m&sup3;)</option>
+            </select>
+          </div>
+
+          <div class="select-pill-wrap">
+            <select id="province-dropdown" class="pill-select" aria-label="Pilih Provinsi">
+              <option value="">Pilih Provinsi…</option>
+            </select>
+          </div>
+
+          <div class="metric-pill" id="hero-prov-pill">
+            <span class="pill-dot" id="hero-prov-dot"></span>
+            <span id="hero-prov-label">Perkiraan: -- &mu;g/m&sup3;</span>
+          </div>
+
+          <div class="metric-pill muted-pill">
+            <span>Ambang Program: 35.0 &mu;g/m&sup3; &middot; Akurasi LinearSVC <strong id="stat-accuracy">90.84%</strong></span>
+          </div>
+        </div>
+
+        <div class="toolbar-right" role="tablist" aria-label="Mode Tampilan">
+          <button class="mode-pill-btn active" id="btn-src-csv" type="button" title="Data historis CSV &amp; model LinearSVC">
+            Data CSV
+          </button>
+          <button class="mode-pill-btn" id="btn-src-realtime" type="button" title="Data live hari ini dari Open-Meteo">
+            Real-Time Hari Ini
+          </button>
+          <span style="width: 1px; height: 22px; background: var(--color-ash); margin: 0 2px;"></span>
+          <button class="mode-pill-btn" id="btn-view-histogram" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="20" x2="18" y2="10"></line>
+              <line x1="12" y1="20" x2="12" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="14"></line>
+            </svg>
+            Histogram
+          </button>
+          <button class="mode-pill-btn active" id="btn-view-map" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+            Tampilan Peta
+          </button>
+        </div>
+      </section>
+
+      <!-- Centered Transparent Indonesia Choropleth Map (No Box, No Border, No Blue Background) -->
+      <section class="map-stage" id="peta-section">
+        <div class="map-canvas-transparent">
+          <div id="indonesia-map"></div>
+          <div id="histogram-view" class="histogram-view" style="display: none;"></div>
+        </div>
+
+        <!-- Bottom Metadata & Segmented Legend Row (Exact PIHPS/Reference Structure) -->
+        <div class="map-footer-bar">
+          <div class="map-footer-left">
+            <div class="footer-title" id="map-footer-title">Perkiraan PM2.5 Nasional (&mu;g/m&sup3;)</div>
+            <div class="footer-sub" id="map-footer-sub">
+              Rentang Perkiraan Dataset: 11.4 – 70.1 &mu;g/m&sup3; &middot; <span id="stat-observations">10.000</span> Observasi di <span id="stat-provinces">23</span> Provinsi
+            </div>
+          </div>
+
+          <div class="pihps-legend" id="pihps-legend">
+            <div class="pihps-legend-bar">
+              <div class="pihps-seg" style="background: #10b981;"></div>
+              <div class="pihps-seg" style="background: #65a30d;"></div>
+              <div class="pihps-seg" style="background: #eab308;"></div>
+              <div class="pihps-seg" style="background: #f97316;"></div>
+              <div class="pihps-seg" style="background: #b91c1c;"></div>
+              <div class="pihps-seg" style="background: #cbd5e1;"></div>
+            </div>
+            <div class="pihps-legend-labels">
+              <span>Baik<br/>(&le;15)</span>
+              <span>Aman<br/>(15–25)</span>
+              <span>Sedang<br/>(25–35)</span>
+              <span>Tidak Sehat<br/>(35–45)</span>
+              <span>Buruk<br/>(&gt;45)</span>
+              <span>Tidak Ada<br/>Data</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <hr class="hairline-divider" />
+
+      <!-- Primary Cards Grid: Regional Forecast (Parchment) + Gemini Today Comparison (Periwinkle Mist) -->
+      <section class="cards-grid-2">
+        <!-- Card 1: Regional Detail & Forecast -->
+        <article class="monad-card">
+          <div class="card-top-row">
+            <span class="node-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+              DETAIL &amp; PERKIRAAN WILAYAH
+            </span>
+            <span class="meta-mono" id="inspector-count">-- OBS</span>
+          </div>
+
+          <div class="prov-title-row">
+            <div>
+              <h2 class="serif-card-title" id="detail-province">Memuat…</h2>
+              <p class="mono-muted" id="detail-meta">--</p>
+            </div>
+            <span class="status-pill-tag" id="detail-status-badge">--</span>
+          </div>
+
+          <div class="forecast-panel">
+            <div class="mono-kicker">PERKIRAAN SPARK MLLIB (LINEARSVC)</div>
+            <div class="forecast-val-row">
+              <span class="forecast-big-num" id="forecast-pm25">-- &mu;g/m&sup3;</span>
+              <span class="mono-muted" id="forecast-prob">Risiko Tidak Sehat: --%</span>
+            </div>
+            <p class="mono-body" id="forecast-note">--</p>
+          </div>
+
+          <div class="mono-kicker" style="margin-top: 24px;">RATA-RATA POLUTAN DATASET</div>
+          <div class="pollutant-grid">
+            <div class="pollutant-cell">
+              <div class="pollutant-name">PM2.5</div>
+              <div class="pollutant-val" id="val-pm25">--</div>
+            </div>
+            <div class="pollutant-cell">
+              <div class="pollutant-name">PM10</div>
+              <div class="pollutant-val" id="val-pm10">--</div>
+            </div>
+            <div class="pollutant-cell">
+              <div class="pollutant-name">NO&#8322;</div>
+              <div class="pollutant-val" id="val-no2">--</div>
+            </div>
+            <div class="pollutant-cell">
+              <div class="pollutant-name">SO&#8322;</div>
+              <div class="pollutant-val" id="val-so2">--</div>
+            </div>
+            <div class="pollutant-cell">
+              <div class="pollutant-name">CO</div>
+              <div class="pollutant-val" id="val-co">--</div>
+            </div>
+            <div class="pollutant-cell">
+              <div class="pollutant-name">O&#8323;</div>
+              <div class="pollutant-val" id="val-o3">--</div>
+            </div>
+          </div>
+
+          <div class="meteo-strip">
+            <span>SUHU: <strong id="val-temp">--</strong></span>
+            <span>KELEMBAPAN: <strong id="val-hum">--</strong></span>
+            <span>ANGIN: <strong id="val-wind">--</strong></span>
+            <span>STAGNASI: <strong id="val-stag">--</strong></span>
+          </div>
+
+          <div class="sparkline-box">
+            <div class="sparkline-head">
+              <span>TREN 12 OBSERVASI TERAKHIR PM2.5</span>
+              <span>BATAS: 35.0 &mu;g/m&sup3;</span>
+            </div>
+            <svg id="trend-sparkline" viewBox="0 0 360 72" width="100%" height="72" aria-label="Grafik tren PM2.5"></svg>
+          </div>
+
+          <div class="mono-kicker" style="margin-top: 20px;">STASIUN PEMANTAU UTAMA</div>
+          <div class="stations-list" id="stations-list"></div>
+        </article>
+
+        <!-- Card 2: Elevated Periwinkle Card — Prakiraan Kualitas Udara 3 Hari Ke Depan -->
+        <article class="monad-card periwinkle-card" id="forecast3d-section">
+          <div class="card-top-row">
+            <span class="node-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+              PRAKIRAAN 3 HARI &middot; API LIVE &amp; DATASET
+            </span>
+          </div>
+
+          <h2 class="serif-card-title" style="margin-top: 12px;">Prakiraan Kualitas Udara 3 Hari Ke Depan</h2>
+          <p class="mono-body" style="margin-top: 8px;">
+            Perbandingan prakiraan kualitas udara untuk <strong>Besok (H+1)</strong>, <strong>Lusa (H+2)</strong>, dan <strong>H+3</strong> pada wilayah terpilih menggunakan dua sumber: prakiraan live Open-Meteo dan proyeksi tren dataset CSV Anda, masing-masing diklasifikasikan oleh model <strong>LinearSVC</strong> (ambang batas PM2.5 &gt; 35.0 &mu;g/m&sup3;).
+          </p>
+
+          <div class="forecast3d-wrap" style="background: var(--color-parchment); margin-top: 20px;">
+            <div class="forecast3d-row-label">PRAKIRAAN API LIVE (OPEN-METEO + LINEARSVC)</div>
+            <div class="forecast3d-grid" id="forecast3d-api">
+              <div class="forecast3d-cell" style="grid-column: 1 / -1; color: var(--color-smoke);">Memuat prakiraan 3 hari…</div>
+            </div>
+            <div class="forecast3d-row-label" style="margin-top: 16px;">PROYEKSI TREN DATASET CSV + LINEARSVC</div>
+            <div class="forecast3d-grid" id="forecast3d-dataset"></div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Lower Section: Matrix Table + Spark MLlib Simulator & MongoDB -->
+      <section class="cards-grid-2" style="margin-top: 32px;">
+        <article class="monad-card" id="matriks-section">
+          <div class="card-top-row" style="margin-bottom: 16px;">
+            <div>
+              <span class="node-tag">MATRIKS 23 PROVINSI</span>
+              <h2 class="serif-card-title" style="margin-top: 12px;">Daftar Perkiraan Wilayah Indonesia</h2>
+            </div>
+            <input type="search" id="table-search" class="pill-input" style="width: 240px;" placeholder="Cari provinsi / kota…" />
+          </div>
+
+          <div class="table-scroll">
+            <table class="monad-table">
+              <thead>
+                <tr>
+                  <th>PROVINSI</th>
+                  <th>AVG PM2.5</th>
+                  <th>MAKS</th>
+                  <th>PERKIRAAN</th>
+                  <th>STATUS</th>
+                </tr>
+              </thead>
+              <tbody id="province-table-body"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="monad-card" id="mllib-section">
+          <div class="card-top-row" style="margin-bottom: 12px;">
+            <span class="node-tag">SPARK MLLIB &middot; LINEARSVC</span>
+            <span class="meta-mono">TANPA DATA LEAKAGE</span>
+          </div>
+          <h2 class="serif-card-title">Simulator &amp; Telemetri Model</h2>
+          <p class="mono-body" style="margin-top: 6px;">
+            Klasifikasi status kualitas udara murni dari polutan pendamping (PM10, SO&#8322;, NO&#8322;, CO, O&#8323;) tanpa memasukkan PM2.5.
+          </p>
+
+          <div class="mllib-strip">
+            <div class="mllib-stat"><span>ACCURACY</span><strong id="ml-acc">90.84%</strong></div>
+            <div class="mllib-stat"><span>PRECISION</span><strong id="ml-prec">90.96%</strong></div>
+            <div class="mllib-stat"><span>RECALL</span><strong id="ml-rec">90.84%</strong></div>
+            <div class="mllib-stat"><span>F1-SCORE</span><strong id="ml-f1">90.88%</strong></div>
+          </div>
+
+          <div class="sim-grid">
+            <div class="input-group">
+              <label class="mono-kicker" for="sim-pm10">PM10</label>
+              <input type="number" id="sim-pm10" class="pill-input" value="105.0" step="1" />
+            </div>
+            <div class="input-group">
+              <label class="mono-kicker" for="sim-so2">SO&#8322;</label>
+              <input type="number" id="sim-so2" class="pill-input" value="28.0" step="0.5" />
+            </div>
+            <div class="input-group">
+              <label class="mono-kicker" for="sim-no2">NO&#8322;</label>
+              <input type="number" id="sim-no2" class="pill-input" value="52.0" step="0.5" />
+            </div>
+            <div class="input-group">
+              <label class="mono-kicker" for="sim-co">CO</label>
+              <input type="number" id="sim-co" class="pill-input" value="1650" step="10" />
+            </div>
+            <div class="input-group">
+              <label class="mono-kicker" for="sim-o3">O&#8323;</label>
+              <input type="number" id="sim-o3" class="pill-input" value="44.0" step="0.5" />
+            </div>
+          </div>
+
+          <div class="sim-actions">
+            <button id="btn-run-sim" class="btn-black-pill" type="button">PREDIKSI LINEARSVC</button>
+            <button id="btn-load-prov-sim" class="btn-ghost-pill" type="button">ISI DARI PROVINSI</button>
+          </div>
+
+          <div class="sim-result-row" id="sim-result" style="display: none;">
+            <span class="mono-body" id="sim-score-text">--</span>
+            <span class="status-pill-tag" id="sim-badge">--</span>
+          </div>
+
+          <div class="mono-kicker" style="margin-top: 22px;">DOKUMEN MONGODB (DB_KUALITAS_UDARA.HASIL_PREDIKSI)</div>
+          <div class="stations-list" id="mongo-samples">
+            <div class="station-row">Memeriksa koneksi MongoDB…</div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js?v=monad3"></script>
+</body>
+</html>
